@@ -61,6 +61,8 @@ func createClient(sota_config string) (*http.Client, CryptoHandler) {
 
 	if handler := NewEciesHandler(cert.PrivateKey); handler != nil {
 		return client, handler
+	} else if handler := NewRsaHandler(cert.PrivateKey); handler != nil {
+		return client, handler
 	}
 	panic("Unsupported private key")
 }
@@ -85,6 +87,12 @@ func NewApp(sota_config, secrets_dir string, testing bool) (*App, error) {
 			return nil, fmt.Errorf("Unable to parse private key(%s): %v", path, err)
 		}
 		handler = NewEciesHandler(p)
+		if handler == nil {
+			handler = NewRsaHandler(p)
+		}
+		if handler == nil {
+			panic("Unsupported private key")
+		}
 	} else {
 		client, handler = createClient(sota_config)
 	}
