@@ -52,18 +52,40 @@ func loadCA(sota_config string, sota *toml.Tree) []byte {
 	return caCert
 }
 
+func tomlGetString(tree *toml.Tree, key string) string {
+	val := tree.GetDefault(key, "").(string)
+	if len(val) == 0 {
+		fmt.Println("ERROR: Missing", key, "in sota.toml")
+		os.Exit(1)
+	}
+	return val
+}
+
+func loadCertLocal(sota_config string, sota *toml.Tree) tls.Certificate {
+	certFile := tomlGetString(sota, "import.tls_clientcert_path")
+	keyFile := tomlGetString(sota, "import.tls_pkey_path")
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return cert
+}
+
+func loadCert(sota_config string, sota *toml.Tree) tls.Certificate {
+	source := sota.GetDefault("tls.pkey_source", "file").(string)
+	if source == "file" {
+		return loadCertLocal(sota_config, sota)
+	}
+	fmt.Println("Invalide tls.pkey_source", source)
+	os.Exit(1)
+	return tls.Certificate{} // to make compiler happy
+}
+
 func createClient(sota_config string) (*http.Client, CryptoHandler) {
 	sota, err := toml.LoadFile(filepath.Join(sota_config, "sota.toml"))
 	if err != nil {
 		fmt.Println("ERROR - unable to decode sota.toml:", err)
 		os.Exit(1)
-	}
-	certFile := filepath.Join(sota_config, "client.pem")
-	keyFile := filepath.Join(sota_config, "pkey.pem")
-
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	caCert := loadCA(sota_config, sota)
@@ -71,13 +93,13 @@ func createClient(sota_config string) (*http.Client, CryptoHandler) {
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{loadCert(sota_config, sota)},
 		RootCAs:      caCertPool,
 	}
 	transport := &http.Transport{TLSClientConfig: tlsConfig}
 	client := &http.Client{Timeout: time.Second * 30, Transport: transport}
 
-	if handler := NewEciesHandler(cert.PrivateKey); handler != nil {
+	if handler := NewEciesHandler(tlsConfig.Certificates[0].PrivateKey); handler != nil {
 		return client, handler
 	}
 	panic("Unsupported private key")
