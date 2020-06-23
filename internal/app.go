@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	toml "github.com/pelletier/go-toml"
 )
 
 var NotModifiedError = errors.New("Config unchanged on server")
@@ -35,20 +37,36 @@ type App struct {
 	configUrl string
 }
 
+func loadCA(sota_config string, sota *toml.Tree) []byte {
+	source := sota.GetDefault("tls.ca_source", "file").(string)
+	if source != "file" {
+		fmt.Println("ERROR - unsupported ca_source in sota.toml", source)
+		os.Exit(1)
+	}
+
+	caFile := sota.GetDefault("import.tls_clientcert_path", filepath.Join(sota_config, "root.crt")).(string)
+	caCert, err := ioutil.ReadFile(caFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return caCert
+}
+
 func createClient(sota_config string) (*http.Client, CryptoHandler) {
+	sota, err := toml.LoadFile(filepath.Join(sota_config, "sota.toml"))
+	if err != nil {
+		fmt.Println("ERROR - unable to decode sota.toml:", err)
+		os.Exit(1)
+	}
 	certFile := filepath.Join(sota_config, "client.pem")
 	keyFile := filepath.Join(sota_config, "pkey.pem")
-	caFile := filepath.Join(sota_config, "root.crt")
 
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	caCert, err := ioutil.ReadFile(caFile)
-	if err != nil {
-		log.Fatal(err)
-	}
+	caCert := loadCA(sota_config, sota)
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
 
