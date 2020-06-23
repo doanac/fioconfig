@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ThalesIgnite/crypto11"
 	toml "github.com/pelletier/go-toml"
 )
 
@@ -71,10 +72,52 @@ func loadCertLocal(sota_config string, sota *toml.Tree) tls.Certificate {
 	return cert
 }
 
+func idToBytes(id string) []byte {
+	bytes := []byte(id)
+	for idx, char := range bytes {
+		bytes[idx] = char - byte('0')
+	}
+	return bytes
+}
+
+func loadCertPkcs11(sota *toml.Tree) tls.Certificate {
+	module := tomlGetString(sota, "p11.modules")
+	pin := tomlGetString(sota, "p11.pass")
+	pkeyId := tomlGetString(sota, "p11.tls_pkey_id")
+	certId := tomlGetString(sota, "p11.tls_clientcert_id")
+
+	cfg := crypto11.Config{
+		Path:       module,
+		TokenLabel: "aktualizr",
+		Pin:        pin,
+	}
+
+	ctx, err := crypto11.Configure(&cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	kp, err := ctx.FindKeyPair(idToBytes(pkeyId), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cert, err := ctx.FindCertificate(idToBytes(certId), nil, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return tls.Certificate{
+		Certificate: [][]byte{cert.Raw},
+		PrivateKey:  kp,
+	}
+}
+
 func loadCert(sota_config string, sota *toml.Tree) tls.Certificate {
 	source := sota.GetDefault("tls.pkey_source", "file").(string)
 	if source == "file" {
 		return loadCertLocal(sota_config, sota)
+	} else if source == "pkcs11" {
+		return loadCertPkcs11(sota)
 	}
 	fmt.Println("Invalide tls.pkey_source", source)
 	os.Exit(1)
