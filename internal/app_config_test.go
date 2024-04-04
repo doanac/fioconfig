@@ -89,6 +89,13 @@ key = "val"`
 	err = cfg2.Write(keyvals)
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "unable to write to file:")
+
+	// Show we can find a file that we can fail back to config file that we
+	// can write to
+	cfg2, err = NewAppConfig([]string{varSota, usrLib})
+	require.Nil(t, err)
+	err = cfg2.Write(keyvals)
+	require.Nil(t, err)
 }
 
 func TestIsWritable(t *testing.T) {
